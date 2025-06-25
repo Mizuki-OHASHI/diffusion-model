@@ -46,7 +46,7 @@ def diffusion_forward(x_ini: tf.Tensor, beta_lst: np.ndarray, T: int) -> tf.Tens
         noise = tf.random.normal(
             shape=tf.shape(x), mean=0.0, stddev=np.sqrt(beta_lst[t])
         )
-        x = -1 / 2 * beta_lst[t] * x + noise
+        x += -1 / 2 * beta_lst[t] * x + noise
         x_lst.append(x)
     return tf.stack(x_lst, axis=0)
 
@@ -54,25 +54,19 @@ def diffusion_forward(x_ini: tf.Tensor, beta_lst: np.ndarray, T: int) -> tf.Tens
 def diffusion_backward(
     x_fin: tf.Tensor, beta_lst: np.ndarray, score_model: keras.Model
 ) -> tf.Tensor:
-    """
-    拡散過程の後退ステップを実行する関数
-    Args:
-        x_fin: 最終状態のテンソル
-        beta_lst: 各ステップのノイズ強度
-        score_model: スコアモデル
-    """
     T = len(beta_lst)
     x = x_fin
     x_lst = [x]
     for t in range(T - 1, -1, -1):
-        t_arr = tf.ones_like(x) * t  # (batch, 1)
+        t_arr = tf.ones_like(x) * t / tf.cast(T, tf.float32)
         xt = tf.concat([x, tf.cast(t_arr, tf.float32)], axis=1)  # (batch, 2)
         score = score_model(xt)
         noise = tf.random.normal(
             shape=tf.shape(x), mean=0.0, stddev=np.sqrt(beta_lst[t])
         )
         beta_t = tf.ones_like(x) * beta_lst[t]
-        x = tf.multiply(tf.cast(x, tf.float32), -0.5) + beta_t * score + noise
+        x += tf.multiply(tf.cast(x, tf.float32), -0.5) + beta_t * score + noise
+        print(f"step {t}, beta_t {beta_t[0,0]}, noise {np.array(noise)[0]}")
         x_lst.append(x)
     return tf.stack(x_lst[::-1], axis=0)
 
@@ -81,17 +75,17 @@ def diffusion_backward(
 score_model = keras.models.Sequential(
     [
         keras.layers.Input(shape=(2,)),  # (x, t)
-        keras.layers.Dense(8, activation="relu"),
-        keras.layers.Dense(8, activation="relu"),
+        keras.layers.Dense(8, activation="tanh"),
+        keras.layers.Dense(8, activation="tanh"),
         keras.layers.Dense(1, activation="linear"),
     ]
 )
 
 # 学習データの生成
-n_input_samples = 100
-mu_lst = tf.constant([-3.0, 0.0, 3.0], dtype=tf.float32)
+n_input_samples = 1000
+mu_lst = tf.constant([-2.0, 0.0, 2.0], dtype=tf.float32)
 sigma_lst = tf.constant([0.5, 0.5, 0.5], dtype=tf.float32)
-weight = tf.constant([0.2, 0.5, 0.3], dtype=tf.float32)
+weight = tf.constant([0.25, 0.6, 0.15], dtype=tf.float32)
 input_samples = mixed_gaussian(mu_lst, sigma_lst, weight)(n_input_samples)
 
 # 拡散過程のパラメータ
@@ -108,8 +102,12 @@ for epoch in tqdm(range(1000)):
     gather_idx = tf.stack([idx, tf.range(n_input_samples, dtype=tf.int32)], axis=1)
     x_t = tf.gather_nd(x_lst, gather_idx)  # (n,1)
     t = tf.cast(idx, tf.float32)
+    t_norm = tf.divide(t, tf.cast(T, tf.float32))
     xt = tf.concat(
-        [tf.reshape(x_t, [n_input_samples, 1]), tf.reshape(t, [n_input_samples, 1])],
+        [
+            tf.reshape(x_t, [n_input_samples, 1]),
+            tf.reshape(t_norm, [n_input_samples, 1]),
+        ],
         axis=1,
     )  # (n,2)
     xt_tensor = tf.convert_to_tensor(xt, dtype=tf.float32)
@@ -130,24 +128,44 @@ for epoch in tqdm(range(1000)):
         )
 
 # モデルの保存
-score_model.save("models/1d_score_model.h5")
+score_model.save("models/1d_score_model.keras")
 
 # モデルの読み込み
-loaded_model = keras.models.load_model("models/1d_score_model.h5")
+loaded_model = keras.models.load_model("models/1d_score_model.keras")
 
 # 拡散過程の後退ステップを実行
-x_fin = tf.random.normal(shape=(1000, 1), mean=0.0, stddev=1.0)  # 漸近分布
+x_fin = np.array(x_lst)[-1].reshape(-1, 1)  # 最後のステップのデータを取得
+x_fin = tf.convert_to_tensor(x_fin, dtype=tf.float32)
 x_reconstructed = diffusion_backward(x_fin, beta_lst, loaded_model)  # type: ignore
 
 # 結果の表示
 fig, axes = plt.subplots(1, 2, figsize=(12, 6))
-axes[0].hist(input_samples, bins=50, density=True, alpha=0.5, label="Input Samples")
-axes[0].set_title("Input Samples Distribution")
-axes[0].legend()
-axes[1].hist(
-    x_reconstructed[-1], bins=50, density=True, alpha=0.5, label="Reconstructed Samples"  # type: ignore
+
+# 入力データと拡散後の分布
+bins = np.linspace(-3, 3, 50)
+axes[0].hist(
+    np.array(input_samples).flatten(),
+    bins=bins,
+    density=True,
+    alpha=0.5,
+    label="Input Samples",
 )
+axes[0].hist(
+    np.array(x_lst)[-1].flatten(),
+    bins=bins,
+    density=True,
+    alpha=0.5,
+    label="Diffused Samples",
+)
+axes[0].set_xlabel("Value")
+axes[0].set_ylabel("Density")
+axes[0].legend(loc="upper right")
+
+# 訓練済みスコアで逆拡散した結果
+xr_last = np.array(x_reconstructed)[0].flatten()
+print(x_reconstructed.shape)
+axes[1].hist(xr_last, bins=50, density=True, alpha=0.5, label="Reconstructed Samples")
 axes[1].set_title("Reconstructed Samples Distribution")
-axes[1].legend()
+axes[1].legend(loc="upper right")
 plt.tight_layout()
 plt.show()
