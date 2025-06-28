@@ -1,4 +1,5 @@
 # 「入門物理学入門」の1D分布 (3峰) のスコアベース拡散モデル
+# ISM: Implicit Score Matching 暗黙的スコアマッチング
 
 import typing as tp
 
