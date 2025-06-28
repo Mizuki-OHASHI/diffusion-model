@@ -1,5 +1,5 @@
 # 「入門物理学入門」の1D分布 (3峰) のスコアベース拡散モデル
-# ISM: Implicit Score Matching 暗黙的スコアマッチング
+# DSM: Denoising Score Matching デノイジングスコアマッチング
 
 import typing as tp
 
@@ -59,21 +59,6 @@ def mixed_gaussian_pdf(
     return pdf
 
 
-def diffusion_forward(x_ini: tf.Tensor, beta_lst: np.ndarray, T: int) -> tf.Tensor:
-    """
-    拡散過程の前進ステップを実行する関数
-    """
-    x = x_ini
-    x_lst = [x]
-    for t in range(T):
-        noise = tf.random.normal(
-            shape=tf.shape(x), mean=0.0, stddev=tf.sqrt(beta_lst[t])
-        )
-        x = (1 - 0.5 * beta_lst[t]) * x + noise
-        x_lst.append(x)
-    return tf.stack(x_lst, axis=0)
-
-
 def diffusion_backward(
     x_fin: tf.Tensor, beta_lst: np.ndarray, score_model: keras.Model
 ) -> tf.Tensor:
@@ -121,11 +106,6 @@ input_samples = mixed_gaussian(mu_lst, sigma_lst, weight)(n_input_samples)
 beta_lst = tf.linspace(0.01, 0.1, 100).numpy()  # numpy配列に変換
 T = beta_lst.shape[0]
 
-# 拡散過程の前進ステップを実行
-print("Running forward diffusion process...")
-x_lst = diffusion_forward(input_samples, beta_lst, T)
-print("Forward process finished.")
-
 optimizer = keras.optimizers.Adam(learning_rate=0.001)
 
 # beta_lstをTensorに変換
@@ -133,28 +113,36 @@ beta_tensor = tf.convert_to_tensor(beta_lst, dtype=tf.float32)
 
 
 @tf.function
-def train_step(score_model: keras.Model, xt_tensor: tf.Tensor) -> None:
+def train_step(
+    score_model: keras.Model, x_initial: tf.Tensor, t_values: tf.Tensor, T: int
+) -> None:
     with tf.GradientTape() as tape:
-        with tf.GradientTape(persistent=True) as inner_tape:
-            inner_tape.watch(xt_tensor)
-            # モデルからスコアを予測
-            predicted_score = score_model(xt_tensor)
+        # 摂動カーネルのノイズスケジュール
+        sigma_t = tf.sqrt(tf.gather(beta_tensor, t_values))
 
-        grad_s_xt = inner_tape.gradient(predicted_score, xt_tensor)
-        score_divergence = tf.gather(grad_s_xt, 0, axis=1)
-        score_norm_squared = tf.square(tf.squeeze(predicted_score))
+        # ノイズを加える
+        noise = tf.random.normal(
+            shape=tf.shape(x_initial), mean=0.0, stddev=sigma_t[:, None]
+        )
+        x_t = x_initial + noise
 
-        # スコアマッチングの損失
-        # J(θ) = E[ tr(∇_x s(x,t)) + (1/2) * ||s(x,t)||^2 ]
-        loss_terms = score_divergence + 0.5 * score_norm_squared
-        loss = tf.reduce_mean(loss_terms)
+        # tを正規化
+        t_norm = tf.divide(tf.cast(t_values, tf.float32), tf.cast(T, tf.float32))
 
-        # persistent=True のテープは手動で解放する必要がある
-        del inner_tape
+        # モデルへの入力 (x_t, t_norm)
+        xt_input = tf.concat([x_t, t_norm[:, None]], axis=1)
+
+        # モデルからスコアを予測
+        predicted_score = score_model(xt_input)
+
+        # ターゲットスコア
+        target_score = -noise / (sigma_t[:, None] ** 2)
+
+        # Denoising Score Matchingの損失
+        loss = tf.reduce_mean(tf.square(predicted_score - target_score))
 
     gradients = tape.gradient(loss, score_model.trainable_variables)
     if gradients is not None:
-        # ループの外で定義したオプティマイザを使用
         optimizer.apply_gradients(zip(gradients, score_model.trainable_variables))
 
 
@@ -162,32 +150,17 @@ def train_step(score_model: keras.Model, xt_tensor: tf.Tensor) -> None:
 for epoch in tqdm(range(5000), desc="Training"):
     # 元のコードと同じデータサンプリング方法
     idx = tf.random.uniform([n_input_samples], minval=0, maxval=T, dtype=tf.int32)
-    gather_idx = tf.stack([idx, tf.range(n_input_samples, dtype=tf.int32)], axis=1)
-    x_t = tf.gather_nd(x_lst, gather_idx)
-    t = tf.cast(idx, tf.float32)
-    t_norm = tf.divide(t, tf.cast(T, tf.float32))
-
-    # モデルへの入力 (x_t, t_norm)
-    xt = tf.concat(
-        [
-            tf.reshape(x_t, [n_input_samples, 1]),
-            tf.reshape(t_norm, [n_input_samples, 1]),
-        ],
-        axis=1,
-    )
-    xt_tensor = tf.convert_to_tensor(xt, dtype=tf.float32)
-    train_step(score_model, xt_tensor)
+    train_step(score_model, input_samples, idx, T)
 
 
 # モデルの保存
-score_model.save("models/1d_ism_score_model.keras")
+score_model.save("models/1d_dsm_score_model.keras")
 
 # モデルの読み込み
-loaded_model = keras.models.load_model("models/1d_ism_score_model.keras")
+loaded_model = keras.models.load_model("models/1d_dsm_score_model.keras")
 
 # 最後のステップのデータを取得
-x_fin = np.array(x_lst)[-1].reshape(-1, 1)
-x_fin = tf.convert_to_tensor(x_fin, dtype=tf.float32)
+x_fin = tf.random.normal(shape=(n_input_samples, 1), mean=0.0, stddev=1.0)
 
 # 拡散過程の後退ステップを実行
 x_asymp = tf.random.normal(shape=tf.shape(x_fin), mean=0.0, stddev=1.0)
