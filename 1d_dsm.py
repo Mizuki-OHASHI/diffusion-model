@@ -217,4 +217,6 @@ axes[1].set_xlabel("Value")
 axes[1].legend(loc="upper right")
 
 plt.tight_layout()
-plt.show()
+# plt.show()
+plt.savefig("figures/1d_dsm_result.png", dpi=300, bbox_inches="tight")
+plt.close(fig)
