@@ -186,8 +186,9 @@ score_model.save("models/1d_ism_score_model.keras")
 loaded_model = keras.models.load_model("models/1d_ism_score_model.keras")
 
 # 最後のステップのデータを取得
-x_fin = np.array(x_lst)[-1].reshape(-1, 1)
-x_fin = tf.convert_to_tensor(x_fin, dtype=tf.float32)
+# x_fin = np.array(x_lst)[-1].reshape(-1, 1)
+# x_fin = tf.convert_to_tensor(x_fin, dtype=tf.float32)
+x_fin = tf.random.normal(shape=(n_input_samples, 1), mean=0.0, stddev=1.0)
 
 # 拡散過程の後退ステップを実行
 x_asymp = tf.random.normal(shape=tf.shape(x_fin), mean=0.0, stddev=1.0)

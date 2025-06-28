@@ -104,12 +104,15 @@ input_samples = mixed_gaussian(mu_lst, sigma_lst, weight)(n_input_samples)
 
 # 拡散過程のパラメータ
 beta_lst = tf.linspace(0.01, 0.1, 100).numpy()  # numpy配列に変換
+alpha_lst = 1 - beta_lst
+alpha_cumprod = np.cumprod(alpha_lst)
 T = beta_lst.shape[0]
 
 optimizer = keras.optimizers.Adam(learning_rate=0.001)
 
 # beta_lstをTensorに変換
-beta_tensor = tf.convert_to_tensor(beta_lst, dtype=tf.float32)
+# beta_tensor = tf.convert_to_tensor(beta_lst, dtype=tf.float32)
+alpha_cumprod_tensor = tf.convert_to_tensor(alpha_cumprod, dtype=tf.float32)
 
 
 @tf.function
@@ -118,13 +121,14 @@ def train_step(
 ) -> None:
     with tf.GradientTape() as tape:
         # 摂動カーネルのノイズスケジュール
-        sigma_t = tf.sqrt(tf.gather(beta_tensor, t_values))
+        # sigma_t = tf.sqrt(tf.gather(beta_tensor, t_values))
+        alpha_t = tf.gather(alpha_cumprod_tensor, t_values)
 
         # ノイズを加える
         noise = tf.random.normal(
-            shape=tf.shape(x_initial), mean=0.0, stddev=sigma_t[:, None]
+            shape=tf.shape(x_initial), mean=0.0, stddev=tf.sqrt(1 - alpha_t)[:, None]
         )
-        x_t = x_initial + noise
+        x_t = tf.sqrt(alpha_t[:, None]) * x_initial + noise
 
         # tを正規化
         t_norm = tf.divide(tf.cast(t_values, tf.float32), tf.cast(T, tf.float32))
@@ -136,7 +140,7 @@ def train_step(
         predicted_score = score_model(xt_input)
 
         # ターゲットスコア
-        target_score = -noise / (sigma_t[:, None] ** 2)
+        target_score = -noise / (1 - alpha_t)[:, None]
 
         # Denoising Score Matchingの損失
         loss = tf.reduce_mean(tf.square(predicted_score - target_score))
