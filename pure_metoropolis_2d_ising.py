@@ -80,9 +80,17 @@ def pure_metropolis(
 # パラメータ
 J = 1.0  # 相互作用定数
 h = 0.0  # 外部磁場
-L = 20  # 格子の一辺の長さ
+L = 50  # 格子の一辺の長さ
 n_steps = 50000  # サンプリングステップ数
 beta = 0.1  # 逆温度
+
+
+def metropolis_worker(beta, J, h, L, n_steps):
+    x_ini = np.ones((L, L), dtype=int)
+    x_lst = pure_metropolis(x_ini, beta, J, h, n_steps, progress=False)
+    energy = ising_energy(x_lst, J, h)
+    magnetization = ising_magnetization(x_lst)
+    return energy, magnetization
 
 
 def pure_metropolis_run():
@@ -92,29 +100,17 @@ def pure_metropolis_run():
     """
     kT_lst = np.linspace(0.1, 6.0, 100)
     beta_lst = 1 / kT_lst
-    energy_lst = []
-    magnetization_lst = []
+    results = []
     for beta in tqdm(beta_lst, desc="Running Pure Metropolis"):
-        # 初期状態の生成
-        # x_ini = np.random.choice([-1, 1], size=(L, L))  # ランダムなスピン配置
-        x_ini = np.ones((L, L), dtype=int)  # 全てのスピンを+1に初期化
-
-        # サンプリング
-        x_lst = pure_metropolis(x_ini, beta, J, h, n_steps, progress=False)
-
-        # エネルギーと磁化の計算
-        energy = ising_energy(x_lst, J, h)
-        magnetization = ising_magnetization(x_lst)
-
-        energy_lst.append(energy)
-        magnetization_lst.append(magnetization)
-
+        r = metropolis_worker(beta, J, h, L, n_steps)
+        results.append(r)
+    energy_lst, magnetization_lst = zip(*results)
     energy_lst = np.array(energy_lst)
     magnetization_lst = np.array(magnetization_lst)
 
-    # エネルギー・磁化の平均と標準偏差 (最後の10%のデータを使用)
-    energy_mean = np.mean(energy_lst[:, -n_steps // 10 :], axis=1)
-    energy_std = np.std(energy_lst[:, -n_steps // 10 :], axis=1)
+    # エネルギー・磁化の平均と標準偏差 (後半の50%のデータを使用)
+    energy_mean = np.mean(energy_lst[:, -n_steps // 2 :], axis=1)
+    energy_std = np.std(energy_lst[:, -n_steps // 2 :], axis=1)
     magnetization_mean = np.mean(magnetization_lst[:, -n_steps // 10 :], axis=1)
     magnetization_std = np.std(magnetization_lst[:, -n_steps // 10 :], axis=1)
 
@@ -123,7 +119,9 @@ def pure_metropolis_run():
 
     # 結果のプロット
     fig, ax = plt.subplots(2, 2, figsize=(12, 10))
-    fig.suptitle("Pure Metropolis Sampling of 2D Ising Model (L = 20)", fontsize=16)
+    fig.suptitle(
+        "Pure Metropolis Sampling of 2D Ising Model (L = {L})".format(L=L), fontsize=16
+    )
     # 代表点でのエネルギー by iteration
     idx = np.arange(0, len(kT_lst), len(kT_lst) // 5)
     for i in idx:
@@ -166,7 +164,11 @@ def pure_metropolis_run():
     ax[1, 1].legend()
     plt.tight_layout()
     # plt.show()
-    plt.savefig("figures/pure_metropolis_2d_ising.png", dpi=300, bbox_inches="tight")
+    plt.savefig(
+        "figures/pure_metropolis_2d_ising_{L}.png".format(L=L),
+        dpi=300,
+        bbox_inches="tight",
+    )
     plt.close(fig)
 
 
