@@ -1,3 +1,6 @@
+import hashlib
+import json
+import os
 import typing as tp
 
 import numpy as np
@@ -47,3 +50,48 @@ def mixed_gaussian_pdf(
         return pdf_values
 
     return pdf
+
+
+def hash_dict(d: dict) -> str:
+    # ソートして順番に依存しないようにする
+    d_str = json.dumps(d, sort_keys=True)
+    # ハッシュ化して16進数で返す（SHA256 -> 64文字だが短くしてもOK）
+    return hashlib.sha256(d_str.encode()).hexdigest()[:16]
+
+
+def save_np(data: np.ndarray, input: dict[str, str | int | float]) -> None:
+    """
+    NumPy配列をファイルに保存する関数
+
+    Parameters
+    ----------
+    data : np.ndarray
+        保存するNumPy配列
+    input : dict[str, str | int | float]
+        入力パラメータを含む辞書。データを識別するために使用します。
+        同じ入力パラメータであれば、同じファイル名で保存されます。
+    """
+    # input からハッシュ生成
+    hash_key = hash_dict(input)
+    filename = f"cache/data_{hash_key}.npy"
+    # ディレクトリが存在しない場合は作成
+    if not os.path.exists("cache"):
+        os.makedirs("cache")
+    np.save(filename, data)
+    print(f"Saved data to {filename}")
+
+
+def load_np(input: dict[str, str | int | float]) -> np.ndarray | None:
+    """
+    NumPy配列をファイルから読み込む関数
+    """
+    # input からハッシュ生成
+    hash_key = hash_dict(input)
+    filename = f"cache/data_{hash_key}.npy"
+    if os.path.exists(filename):
+        data = np.load(filename)
+        print(f"Loaded data from {filename}")
+        return data
+    else:
+        print(f"No data found for {filename}")
+        return None
