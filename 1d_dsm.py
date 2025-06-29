@@ -1,7 +1,6 @@
 # 「入門物理学入門」の1D分布 (3峰) のスコアベース拡散モデル
 # DSM: Denoising Score Matching デノイジングスコアマッチング
 
-import typing as tp
 
 import japanize_matplotlib
 import keras
@@ -10,53 +9,10 @@ import numpy as np
 import tensorflow as tf
 from tqdm import tqdm
 
+from utils import mixed_gaussian, mixed_gaussian_pdf
+
 tf.random.set_seed(42)
 np.random.seed(42)
-
-
-def mixed_gaussian(mu_lst, sigma_lst, weight) -> tp.Callable[[int], tf.Tensor]:
-    """
-    混合ガウス分布に従う乱数を生成する関数
-    """
-    length = len(mu_lst)
-    assert length == len(sigma_lst) == len(weight)
-    mu_lst = np.array(mu_lst, dtype=np.float32)
-    sigma_lst = np.array(sigma_lst, dtype=np.float32)
-    weight = np.array(weight, dtype=np.float32)
-
-    def random_variable(n_samples: int) -> tf.Tensor:
-        index = np.random.choice(length, size=n_samples, p=weight)
-        mu = mu_lst[index]
-        sigma = sigma_lst[index]
-        rv = np.random.normal(mu, sigma, size=n_samples)
-        return tf.convert_to_tensor(rv[:, np.newaxis], dtype=tf.float32)
-
-    return random_variable
-
-
-def mixed_gaussian_pdf(
-    mu_lst, sigma_lst, weight
-) -> tp.Callable[[np.ndarray], np.ndarray]:
-    """
-    混合ガウス分布の確率密度関数を計算する関数
-    """
-    length = len(mu_lst)
-    assert length == len(sigma_lst) == len(weight)
-    mu_lst = np.array(mu_lst, dtype=np.float32)
-    sigma_lst = np.array(sigma_lst, dtype=np.float32)
-    weight = np.array(weight, dtype=np.float32)
-
-    def pdf(x: np.ndarray) -> np.ndarray:
-        pdf_values = np.zeros_like(x, dtype=np.float32)
-        for mu, sigma, w in zip(mu_lst, sigma_lst, weight):
-            pdf_values += (
-                w
-                * (1 / (sigma * np.sqrt(2 * np.pi)))
-                * np.exp(-0.5 * ((x - mu) / sigma) ** 2)
-            )
-        return pdf_values
-
-    return pdf
 
 
 def diffusion_backward(
@@ -111,7 +67,6 @@ T = beta_lst.shape[0]
 optimizer = keras.optimizers.Adam(learning_rate=0.001)
 
 # beta_lstをTensorに変換
-# beta_tensor = tf.convert_to_tensor(beta_lst, dtype=tf.float32)
 alpha_cumprod_tensor = tf.convert_to_tensor(alpha_cumprod, dtype=tf.float32)
 
 
@@ -150,9 +105,7 @@ def train_step(
         optimizer.apply_gradients(zip(gradients, score_model.trainable_variables))
 
 
-# 元のループ構造を維持して訓練
 for epoch in tqdm(range(5000), desc="Training"):
-    # 元のコードと同じデータサンプリング方法
     idx = tf.random.uniform([n_input_samples], minval=0, maxval=T, dtype=tf.int32)
     train_step(score_model, input_samples, idx, T)
 

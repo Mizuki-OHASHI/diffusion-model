@@ -1,5 +1,5 @@
 # 「入門物理学入門」の1D分布 (3峰) のスコアベース拡散モデル
-# ISM: Implicit Score Matching 暗黙的スコアマッチング
+# ISM: Implicit Score Matching 暗黙的スコアマッチング (正則化あり)
 
 
 import japanize_matplotlib
@@ -77,6 +77,7 @@ input_samples = mixed_gaussian(mu_lst, sigma_lst, weight)(n_input_samples)
 # 拡散過程のパラメータ
 beta_lst = tf.linspace(0.01, 0.1, 100).numpy()  # numpy配列に変換
 T = beta_lst.shape[0]
+regularization_strength = 1e-2  # 正則化強度
 
 # 拡散過程の前進ステップを実行
 print("Running forward diffusion process...")
@@ -103,7 +104,11 @@ def train_step(score_model: keras.Model, xt_tensor: tf.Tensor) -> None:
 
         # スコアマッチングの損失
         # J(θ) = E[ tr(∇_x s(x,t)) + (1/2) * ||s(x,t)||^2 ]
-        loss_terms = score_divergence + 0.5 * score_norm_squared
+        loss_terms = (
+            score_divergence
+            + 0.5 * score_norm_squared
+            + regularization_strength * tf.square(predicted_score)
+        )
         loss = tf.reduce_mean(loss_terms)
 
         # persistent=True のテープは手動で解放する必要がある
@@ -135,10 +140,10 @@ for epoch in tqdm(range(5000), desc="Training"):
 
 
 # モデルの保存
-score_model.save("models/1d_ism_score_model.keras")
+score_model.save("models/1d_ism_regularized_score_model.keras")
 
 # モデルの読み込み
-loaded_model = keras.models.load_model("models/1d_ism_score_model.keras")
+loaded_model = keras.models.load_model("models/1d_ism_regularized_score_model.keras")
 
 # 最後のステップのデータを取得
 # x_fin = np.array(x_lst)[-1].reshape(-1, 1)
@@ -197,5 +202,5 @@ axes[1].legend(loc="upper right")
 
 plt.tight_layout()
 # plt.show()
-plt.savefig("figures/1d_ism_result.png", dpi=300, bbox_inches="tight")
+plt.savefig("figures/1d_ism_regularized_result.png", dpi=300, bbox_inches="tight")
 plt.close(fig)
