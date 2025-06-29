@@ -140,15 +140,15 @@ axes[0].hist(
     label="学習データ",
     color="blue",
 )
-axes[0].hist(
-    np.array(x_reconstructed)[-1].flatten(),
-    bins=bins,
-    density=True,
-    alpha=0.6,
-    label="拡散後の分布",
-    color="red",
-)
-axes[0].set_title("入力データと拡散後の分布")
+# axes[0].hist(
+#     np.array(x_reconstructed)[-1].flatten(),
+#     bins=bins,
+#     density=True,
+#     alpha=0.6,
+#     label="拡散後の分布",
+#     color="red",
+# )
+axes[0].set_title("入力データ")
 axes[0].set_xlabel("Value")
 axes[0].set_ylabel("Density")
 axes[0].legend(loc="upper right")
