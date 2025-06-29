@@ -2,7 +2,7 @@
 # DSM: Denoising Score Matching デノイジングスコアマッチング
 
 
-import japanize_matplotlib
+import japanize_matplotlib  # noqa: F401
 import keras
 import matplotlib.pyplot as plt
 import numpy as np
