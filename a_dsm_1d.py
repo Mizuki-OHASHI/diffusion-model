@@ -33,7 +33,8 @@ def diffusion_backward(
         )
         beta_t = beta_lst[t]
 
-        x = (1 + 0.5 * beta_t) * x + beta_t * score + noise
+        # x = (1 + 0.5 * beta_t) * x + beta_t * score + noise
+        x = 1 / tf.sqrt(1 - beta_t) * x + beta_t / tf.sqrt(1 - beta_t) * score + noise
         x_lst.append(x)
     return tf.stack(x_lst[::-1], axis=0)
 
@@ -66,7 +67,6 @@ T = beta_lst.shape[0]
 
 optimizer = keras.optimizers.Adam(learning_rate=0.001)
 
-# beta_lstをTensorに変換
 alpha_cumprod_tensor = tf.convert_to_tensor(alpha_cumprod, dtype=tf.float32)
 
 
