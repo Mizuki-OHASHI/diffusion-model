@@ -77,12 +77,19 @@ kT = 2.0  # 温度
 beta = 1 / kT
 J = 1.0  # 相互作用定数
 h = 0.0  # 外部磁場
-n_steps = 100000
 epochs = 10000
-n_samples = n_steps // 2
+n_samples = 50000
 L = 20
 x_ini = np.ones((L, L))
-x_samples = pure_metropolis(x_ini, beta=beta, J=J, h=h, n_steps=n_steps)[-n_samples:]
+x_samples = pure_metropolis(
+    x_ini,
+    beta=beta,
+    J=J,
+    h=h,
+    n_mcs_equilibration=10000,
+    n_mcs_measurement=n_samples,
+    measurement_interval_mcs=10,
+)
 x_lst = ising_fft(x_samples, L)
 x_lst = np.concat([x_lst.real, x_lst.imag], axis=-1)
 x_lst = x_lst.reshape(-1, 2 * (L // 2 + 1) * L)

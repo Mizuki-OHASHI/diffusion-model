@@ -1,7 +1,5 @@
 # 2 次元イジングモデル (拡散モデル) - 実空間U-Net版
 
-import math
-
 import japanize_matplotlib  # noqa: F401
 import keras
 import matplotlib.pyplot as plt
@@ -9,73 +7,11 @@ import numpy as np
 import tensorflow as tf
 from tqdm import tqdm
 
+from b_pure_metoropolis_2d_ising import ising_energy, pure_metropolis
+from onsager import onsager_energy
+
 np.random.seed(42)
 tf.random.set_seed(42)
-
-
-# ===============================================================
-# 外部ファイルからのインポート関数をここに含める
-# ===============================================================
-
-
-def pure_metropolis(x_ini, beta, J, h, n_steps):
-    """
-    Metropolis法でイジングモデルのサンプルを生成する（プレースホルダー）
-    ユーザー自身の完全な実装を使用してください。
-    """
-    L = x_ini.shape[0]
-    x = np.copy(x_ini)
-    samples = []
-    for _ in range(n_steps):
-        i, j = np.random.randint(0, L, size=2)
-        s = x[i, j]
-        neighbors = (
-            x[(i + 1) % L, j]
-            + x[(i - 1 + L) % L, j]
-            + x[i, (j + 1) % L]
-            + x[i, (j - 1 + L) % L]
-        )
-        delta_E = 2 * s * (J * neighbors + h)
-        if delta_E < 0 or np.random.rand() < np.exp(-beta * delta_E):
-            x[i, j] = -s
-        samples.append(np.copy(x))
-    return np.array(samples)
-
-
-def ising_energy(lattice, J, h):
-    """
-    与えられた格子のエネルギーを計算する関数
-    """
-    # squeezeでチャンネル次元を削除してから計算
-    lattice = np.squeeze(lattice, axis=-1) if lattice.ndim == 4 else lattice
-    energy = np.zeros(lattice.shape[:-2])
-    energy -= J * np.sum(lattice[..., :, :-1] * lattice[..., :, 1:], axis=(-1, -2))
-    energy -= J * np.sum(lattice[..., :-1, :] * lattice[..., 1:, :], axis=(-1, -2))
-    energy -= h * np.sum(lattice, axis=(-1, -2))
-    energy -= J * np.sum(lattice[..., :, -1] * lattice[..., :, 0], axis=-1)
-    energy -= J * np.sum(lattice[..., -1, :] * lattice[..., 0, :], axis=-1)
-    return energy
-
-
-def onsager_energy(kT, J):
-    """
-    Onsagerによる厳密解のエネルギー（h=0, L=inf）
-    """
-    if kT == 0:
-        return -2.0 * J
-    beta = 1.0 / kT
-    k = 2 * J * beta / (np.cosh(2 * J * beta) ** 2)
-
-    def integrand(theta, k):
-        return np.sqrt(1 - (k * np.sin(theta)) ** 2)
-
-    theta_vals = np.linspace(0, np.pi / 2, 1000)
-    K = np.trapz(1.0 / integrand(theta_vals, k), theta_vals)
-    return (
-        -J
-        / np.tanh(2 * J * beta)
-        * (1 + 2 / np.pi * (2 * np.tanh(2 * J * beta) ** 2 - 1) * K)
-    )
 
 
 # ===============================================================
@@ -198,13 +134,12 @@ def train_step(score_model, x_ini, t_values, T, optimizer, alpha_cumprod):
 # ===============================================================
 
 # --- パラメータ設定 ---
-kT = 2.0
+kT = 2.0  # 温度
 beta = 1 / kT
-J = 1.0
-h = 0.0
-n_steps = 100000
-epochs = 10000
-n_samples = n_steps // 2
+J = 1.0  # 相互作用定数
+h = 0.0  # 外部磁場
+epochs = 1000
+n_samples = 5000
 L = 20
 batch_size = 64
 
@@ -212,12 +147,20 @@ batch_size = 64
 print("Generating training data with Metropolis...")
 x_ini = np.ones((L, L))
 # x_samplesの形状は (n_samples, L, L)
-x_samples = pure_metropolis(x_ini, beta=beta, J=J, h=h, n_steps=n_steps)[-n_samples:]
+
+x_samples = pure_metropolis(
+    x_ini,
+    beta=beta,
+    J=J,
+    h=h,
+    n_mcs_equilibration=1000,
+    n_mcs_measurement=n_samples,
+    measurement_interval_mcs=10,
+)
 
 # --- データ前処理 (実空間U-Net用) ---
-# <--- 変更点: FFTせず、チャンネル次元を追加するだけ
 # (n_samples, L, L) -> (n_samples, L, L, 1)
-x_lst = x_samples[..., np.newaxis]
+x_lst = x_samples[2][..., np.newaxis]
 x_lst = tf.convert_to_tensor(x_lst, dtype=tf.float32)
 print(f"Data shape for Real-Space U-Net: {x_lst.shape}")
 
@@ -258,15 +201,13 @@ score_model = keras.models.load_model(
 )
 
 # --- サンプリング（生成） ---
-samples = 5
-# <--- 変更点: 入力ノイズの形状を修正
+samples = 1000
 x_asym = tf.random.normal(shape=(samples, *unet_input_shape), mean=0.0, stddev=1.0)
 x_rec = diffusion_backward(x_asym, beta_tensor, score_model, T)
 
 # --- 後処理と評価 ---
 x_rec_np = np.array(x_rec)[0]
 
-# <--- 変更点: iFFTは不要。Binarizeするだけ
 x_rec_np = np.where(x_rec_np > 0, 1, -1)
 # ising_energyやimshowのためにチャンネル次元を削除 (samples, L, L, 1) -> (samples, L, L)
 x_rec_np_final = np.squeeze(x_rec_np, axis=-1)

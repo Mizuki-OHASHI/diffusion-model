@@ -69,7 +69,7 @@ def pure_metropolis(
     n_mcs_measurement: int,
     measurement_interval_mcs: int,
     progress: bool = True,
-) -> tuple[np.ndarray, np.ndarray]:
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """
     純粋なメトロポリス法によるサンプリング (MCSベース)
     """
@@ -78,6 +78,7 @@ def pure_metropolis(
     n_spins = L * L
     energy_samples = []
     magnetization_samples = []
+    samples = []
 
     # 平衡化ステップ (MCS単位)
     iterator = range(n_mcs_equilibration)
@@ -99,8 +100,9 @@ def pure_metropolis(
             magnetization = ising_magnetization(x[np.newaxis, ...])[0]
             energy_samples.append(energy)
             magnetization_samples.append(magnetization)
+            samples.append(x.copy())
 
-    return np.array(energy_samples), np.array(magnetization_samples)
+    return np.array(samples), np.array(energy_samples), np.array(magnetization_samples)
 
 
 # パラメータ
@@ -243,7 +245,7 @@ def pure_metropolis_run():
     ax[2].legend()
     ax[2].set_ylim(bottom=0)
 
-    plt.tight_layout(rect=[0, 0.03, 1, 0.95])
+    plt.tight_layout(rect=(0, 0.03, 1, 0.95))
     # plt.show()
     plt.savefig(
         f"figures/pure_metropolis_2d_ising_{L}.png",
