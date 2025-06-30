@@ -65,36 +65,69 @@ def pure_metropolis(
     beta: float,
     J: float,
     h: float,
-    n_steps: int,
+    n_mcs_equilibration: int,
+    n_mcs_measurement: int,
+    measurement_interval_mcs: int,
     progress: bool = True,
-) -> np.ndarray:
+) -> tuple[np.ndarray, np.ndarray]:
     """
-    純粋なメトロポリス法によるサンプリング
+    純粋なメトロポリス法によるサンプリング (MCSベース)
     """
     x = x_ini.copy()
-    x_lst = [x]
-    for _ in tqdm(
-        range(n_steps), desc="Pure Metropolis Sampling", disable=not progress
-    ):
-        x = pure_metropolis_next(x, beta, J, h)
-        x_lst.append(x.copy())
-    return np.array(x_lst)
+    L = x.shape[0]
+    n_spins = L * L
+    energy_samples = []
+    magnetization_samples = []
+
+    # 平衡化ステップ (MCS単位)
+    iterator = range(n_mcs_equilibration)
+    if progress:
+        iterator = tqdm(iterator, desc="Equilibration (MCS)")
+    for _ in iterator:
+        for _ in range(n_spins):  # 1 MCS
+            x = pure_metropolis_next(x, beta, J, h)
+
+    # 測定ステップ (MCS単位)
+    iterator = range(n_mcs_measurement)
+    if progress:
+        iterator = tqdm(iterator, desc="Measurement (MCS)")
+    for i in iterator:
+        for _ in range(n_spins):  # 1 MCS
+            x = pure_metropolis_next(x, beta, J, h)
+        if i % measurement_interval_mcs == 0:
+            energy = ising_energy(x[np.newaxis, ...], J, h)[0]
+            magnetization = ising_magnetization(x[np.newaxis, ...])[0]
+            energy_samples.append(energy)
+            magnetization_samples.append(magnetization)
+
+    return np.array(energy_samples), np.array(magnetization_samples)
 
 
 # パラメータ
 J = 1.0  # 相互作用定数
 h = 0.0  # 外部磁場
-L = 50  # 格子の一辺の長さ
-n_steps = 100000  # サンプリングステップ数
-beta = 0.1  # 逆温度
+L = 20  # 格子の一辺の長さ
+N_spins = L * L
+
+# モンテカルロステップ (MCS) ベースのパラメータ設定
+n_mcs_equilibration = 1000  # 平衡化のMCS
+n_mcs_measurement = 5000  # 測定のMCS
+measurement_interval_mcs = 10  # 測定間隔 (MCS)
 
 
-def metropolis_worker(beta, J, h, L, n_steps):
+def metropolis_worker(beta, J, h, L):
     x_ini = np.ones((L, L), dtype=int)
-    x_lst = pure_metropolis(x_ini, beta, J, h, n_steps, progress=False)
-    energy = ising_energy(x_lst, J, h)
-    magnetization = ising_magnetization(x_lst)
-    return energy, magnetization
+    energy_samples, magnetization_samples = pure_metropolis(
+        x_ini,
+        beta,
+        J,
+        h,
+        n_mcs_equilibration,
+        n_mcs_measurement,
+        measurement_interval_mcs,
+        # progress=False,
+    )
+    return energy_samples, magnetization_samples
 
 
 def pure_metropolis_run():
@@ -105,50 +138,47 @@ def pure_metropolis_run():
     kT_lst = np.linspace(0.1, 6.0, 100)
     beta_lst = 1 / kT_lst
 
+    # ファイル名にMCSの情報を追加
+    param_str = f"L{L}_eq{n_mcs_equilibration}_mc{n_mcs_measurement}"
     input_dict_energy = dict(
-        name="pure_metropolis_run.energy",
-        L=L,
-        n_steps=n_steps,
-        J=J,
-        h=h,
-        beta=str(beta_lst),
+        name=f"pure_metropolis_run.energy.{param_str}",
     )
     input_dict_magnetization = dict(
-        name="pure_metropolis_run.magnetization",
-        L=L,
-        n_steps=n_steps,
-        J=J,
-        h=h,
-        beta=str(beta_lst),
+        name=f"pure_metropolis_run.magnetization.{param_str}",
     )
 
-    energy_lst = load_np(input_dict_energy)
-    magnetization_lst = load_np(input_dict_magnetization)
-    if energy_lst is None or magnetization_lst is None:
+    energy_samples_lst = load_np(input_dict_energy)
+    magnetization_samples_lst = load_np(input_dict_magnetization)
+
+    if energy_samples_lst is None or magnetization_samples_lst is None:
         results = []
-        for beta in tqdm(beta_lst, desc="Running Pure Metropolis"):
-            r = metropolis_worker(beta, J, h, L, n_steps)
+        for beta in tqdm(beta_lst, desc="Running Pure Metropolis for each temperature"):
+            r = metropolis_worker(beta, J, h, L)
             results.append(r)
-        energy_lst, magnetization_lst = zip(*results)
-        energy_lst = np.array(energy_lst)
-        magnetization_lst = np.array(magnetization_lst)
+        energy_samples_lst, magnetization_samples_lst = zip(*results)
+        energy_samples_lst = np.array(
+            [np.array(e) for e in energy_samples_lst], dtype=object
+        )
+        magnetization_samples_lst = np.array(
+            [np.array(m) for m in magnetization_samples_lst], dtype=object
+        )
 
         # データの保存
-        save_np(energy_lst, input_dict_energy)
-        save_np(magnetization_lst, input_dict_magnetization)
+        save_np(energy_samples_lst, input_dict_energy)
+        save_np(magnetization_samples_lst, input_dict_magnetization)
 
-    # エネルギー・磁化の平均と標準偏差 (後半の50%のデータを使用)
-    equil_step = n_steps // 2
-    energy_mean = np.mean(energy_lst[:, -equil_step:], axis=1) / (L * L)
-    energy_std = np.std(energy_lst[:, -equil_step:], axis=1) / (L * L)
-    magnetization_mean = np.mean(np.abs(magnetization_lst[:, -equil_step:]), axis=1)
-    magnetization_std = np.std(magnetization_lst[:, -equil_step:], axis=1)
+    # 各温度での物理量の平均と標準偏差を計算
+    energy_mean = np.array([np.mean(e) for e in energy_samples_lst]) / N_spins
+    energy_std = np.array([np.std(e) for e in energy_samples_lst]) / N_spins
+    magnetization_mean = np.array(
+        [np.mean(np.abs(m)) for m in magnetization_samples_lst]
+    )
+    magnetization_std = np.array([np.std(m) for m in magnetization_samples_lst])
 
-    # 比熱 (C = dE/dT)
-    # heat_capacity = np.gradient(energy_mean, kT_lst)
-    # 揺らぎの公式を使って比熱を計算
+    # 比熱 (揺らぎの公式)
     # C/N = (<E^2> - <E>^2) / (N * kT^2)
-    heat_capacity = np.var(energy_lst[:, -equil_step:], axis=1) / (kT_lst**2 * (L * L))
+    energy_var = np.array([np.var(e) for e in energy_samples_lst])
+    heat_capacity = energy_var / (N_spins * kT_lst**2)
 
     # Onsagerの厳密解
     onsager_kT = np.linspace(0.1, 6.0, 200)
@@ -157,24 +187,14 @@ def pure_metropolis_run():
     onsager_C = onsager_heat_capacity(onsager_kT, J)
 
     # 結果のプロット
-    fig, ax = plt.subplots(2, 2, figsize=(12, 10))
+    fig, ax = plt.subplots(1, 3, figsize=(18, 5))
     fig.suptitle(
-        "Pure Metropolis Sampling of 2D Ising Model (L = {L})".format(L=L), fontsize=16
+        f"Pure Metropolis Sampling of 2D Ising Model (L={L}, Eq={n_mcs_equilibration} MCS, Mc={n_mcs_measurement} MCS)",
+        fontsize=16,
     )
-    # 代表点でのエネルギー by iteration
-    idx = np.arange(0, len(kT_lst), len(kT_lst) // 5)
-    for i in idx:
-        ax[0, 0].plot(
-            np.arange(n_steps + 1),
-            energy_lst[i] / (L * L),
-            label=f"kT = {kT_lst[i]:.2f}",
-        )
-    ax[0, 0].set_title("Energy vs Iteration")
-    ax[0, 0].set_xlabel("Iteration")
-    ax[0, 0].set_ylabel("Energy / N")
-    ax[0, 0].legend()
+
     # エネルギー
-    ax[0, 1].errorbar(
+    ax[0].errorbar(
         kT_lst,
         energy_mean,
         yerr=energy_std,
@@ -182,15 +202,19 @@ def pure_metropolis_run():
         label="Metropolis",
         color="blue",
         markersize=4,
+        capsize=3,
     )
-    ax[0, 1].plot(onsager_kT, onsager_E, label="Onsager", color="red")
-    ax[0, 1].axvline(theoretical_critical_kT, color="red", linestyle="--")
-    ax[0, 1].set_title("Energy vs Temperature")
-    ax[0, 1].set_xlabel("Temperature (kT)")
-    ax[0, 1].set_ylabel("Energy / N")
-    ax[0, 1].legend()
+    ax[0].plot(onsager_kT, onsager_E, label="Onsager (Exact)", color="red")
+    ax[0].axvline(
+        theoretical_critical_kT, color="gray", linestyle="--", label="Critical Temp."
+    )
+    ax[0].set_title("Energy vs Temperature")
+    ax[0].set_xlabel("Temperature (kT/J)")
+    ax[0].set_ylabel("Energy / N")
+    ax[0].legend()
+
     # 磁化
-    ax[1, 0].errorbar(
+    ax[1].errorbar(
         kT_lst,
         magnetization_mean,
         yerr=magnetization_std,
@@ -198,26 +222,31 @@ def pure_metropolis_run():
         label="Metropolis",
         color="orange",
         markersize=4,
+        capsize=3,
     )
-    ax[1, 0].plot(onsager_kT, onsager_M, label="Onsager", color="red")
-    ax[1, 0].axvline(theoretical_critical_kT, color="red", linestyle="--")
-    ax[1, 0].set_title("Magnetization vs Temperature")
-    ax[1, 0].set_xlabel("Temperature (kT)")
-    ax[1, 0].set_ylabel("Magnetization / N")
-    ax[1, 0].legend()
+    ax[1].plot(onsager_kT, onsager_M, label="Onsager (Exact)", color="red")
+    ax[1].axvline(theoretical_critical_kT, color="gray", linestyle="--")
+    ax[1].set_title("Magnetization vs Temperature")
+    ax[1].set_xlabel("Temperature (kT/J)")
+    ax[1].set_ylabel("Magnetization / N")
+    ax[1].legend()
+
     # 比熱
-    ax[1, 1].plot(kT_lst, heat_capacity, "o-", label="Metropolis", color="green")
-    ax[1, 1].plot(onsager_kT, onsager_C, label="Onsager", color="red")
-    ax[1, 1].axvline(theoretical_critical_kT, color="red", linestyle="--")
-    ax[1, 1].set_title("Heat Capacity vs Temperature")
-    ax[1, 1].set_ylim(None, 1.1 * np.max(heat_capacity))
-    ax[1, 1].set_xlabel("Temperature (kT)")
-    ax[1, 1].set_ylabel("Heat Capacity / N")
-    ax[1, 1].legend()
-    plt.tight_layout()
+    ax[2].plot(
+        kT_lst, heat_capacity, "o-", label="Metropolis", color="green", markersize=4
+    )
+    ax[2].plot(onsager_kT, onsager_C, label="Onsager (Exact)", color="red")
+    ax[2].axvline(theoretical_critical_kT, color="gray", linestyle="--")
+    ax[2].set_title("Specific Heat vs Temperature")
+    ax[2].set_xlabel("Temperature (kT/J)")
+    ax[2].set_ylabel("Specific Heat / N")
+    ax[2].legend()
+    ax[2].set_ylim(bottom=0)
+
+    plt.tight_layout(rect=[0, 0.03, 1, 0.95])
     # plt.show()
     plt.savefig(
-        "figures/pure_metropolis_2d_ising_{L}.png".format(L=L),
+        f"figures/pure_metropolis_2d_ising_{L}.png",
         dpi=300,
         bbox_inches="tight",
     )
