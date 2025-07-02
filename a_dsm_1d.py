@@ -60,7 +60,7 @@ weight = tf.constant([0.25, 0.6, 0.15], dtype=tf.float32)
 input_samples = mixed_gaussian(mu_lst, sigma_lst, weight)(n_input_samples)
 
 # 拡散過程のパラメータ
-beta_lst = tf.linspace(0.01, 0.1, 100).numpy()  # numpy配列に変換
+beta_lst = tf.linspace(0.01, 0.1, 1000).numpy()  # numpy配列に変換
 alpha_lst = 1 - beta_lst
 alpha_cumprod = np.cumprod(alpha_lst)
 T = beta_lst.shape[0]
@@ -105,9 +105,19 @@ def train_step(
         optimizer.apply_gradients(zip(gradients, score_model.trainable_variables))
 
 
-for epoch in tqdm(range(5000), desc="Training"):
-    idx = tf.random.uniform([n_input_samples], minval=0, maxval=T, dtype=tf.int32)
-    train_step(score_model, input_samples, idx, T)
+batch_size = 128
+n_epochs = 50000
+for epoch in tqdm(range(n_epochs), desc="Training"):
+    sample_idx = tf.random.uniform(
+        [batch_size], minval=0, maxval=n_input_samples, dtype=tf.int32
+    )
+    input_samples_batch = tf.gather(input_samples, sample_idx)
+    train_step(
+        score_model,
+        input_samples_batch,
+        tf.random.uniform([batch_size], 0, T, dtype=tf.int32),
+        T,
+    )
 
 
 # モデルの保存
