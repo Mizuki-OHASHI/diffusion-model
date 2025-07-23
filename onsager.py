@@ -48,3 +48,10 @@ def onsager_heat_capacity(kT, J):
             * (2.0 * K - 2.0 * E - (1.0 - k_prime) * (np.pi / 2.0 + k_prime * K))
         )
     return C_N_kB
+
+
+if __name__ == "__main__":
+    kT = 2.5
+    J = 1.0
+    print("Energy per site:", onsager_energy(kT, J))
+    print("Magnetization per site:", onsager_magnetization(kT, J))
