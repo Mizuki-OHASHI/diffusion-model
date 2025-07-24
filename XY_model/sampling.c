@@ -3,25 +3,26 @@
 int main(int argc, char **argv)
 {
   field2d u;
-  int i, j, nsamples;
+  int i, j, nsamples, size;
   double beta;
   sampling_stats stats;
 
   srand(42);
 
-  if (argc != 3)
+  if (argc != 4)
   {
-    fprintf(stderr, "Usage: %s <nsamples> <beta>\n", argv[0]);
+    fprintf(stderr, "Usage: %s <nsamples> <size> <beta>\n", argv[0]);
     return 1;
   }
 
   nsamples = atoi(argv[1]);
-  beta = atof(argv[2]);
+  size = atoi(argv[2]);
+  beta = atof(argv[3]);
 
-  printf("nsamples=%d, beta=%.2f, nx=%d, ny=%d\n", nsamples, beta, NX, NY);
+  printf("nsamples=%d, beta=%.2f, nx=%d, ny=%d\n", nsamples, beta, size, size);
 
   // Initialize the field
-  xy_initialize(&u, NX, NY);
+  xy_initialize(&u, size, size);
 
   // Perform sampling with equilibration
   stats = xy_sampling(&u, beta, nsamples, 1);

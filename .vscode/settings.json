@@ -1,0 +1,8 @@
+{
+  "files.associations": {
+    "*.ejs": "html",
+    "*.tsx": "typescriptreact",
+    "*.sql": "sql",
+    "*.inc": "c"
+  }
+}

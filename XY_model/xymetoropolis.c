@@ -5,9 +5,6 @@
 #include <math.h>
 #include <time.h>
 
-#define NX 32
-#define NY 32
-
 #define F(u, i, j) (u).f[(((u).ny) * ((i) - (u).iox) + ((j) - (u).ioy))]
 
 typedef struct
@@ -154,9 +151,9 @@ sampling_stats xy_sampling(field2d *u, double beta, int nsamples, int verbose)
   vortex_count vortices;
   sampling_stats stats = {0.0, 0.0, 0.0, 0.0};
 
-  int equilibration_steps = 10000 * u->nx * u->ny; // 10000 MCS for equilibration
-  int total_steps = equilibration_steps + nsamples * u->nx * u->ny;
-  int sample_interval = u->nx * u->ny; // Sample every 1 MCS
+  int equilibration_steps = 10000 * u->nx * u->ny;                    // 10000 MCS for equilibration
+  int sample_interval = u->nx * u->ny * 10;                           // Sample every 10 MCS
+  int total_steps = equilibration_steps + nsamples * sample_interval; // Ensure enough steps for nsamples
   int samples_collected = 0;
 
   if (verbose)

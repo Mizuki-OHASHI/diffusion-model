@@ -1,0 +1,16 @@
+nsamples=1000, beta=1.00, nx=32, ny=32
+metropolis_sampling_metadata
+{'equilibration_steps': 10240000.0, 'nsamples': 1000.0}
+final_statistics_metadata
+{'energy': -1.300794, 'magnetization': 0.527474, 'vortex_positive': 13.987, 'vortex_negative': 13.987}
+[[0.205 0.721]]
+[[0.295 0.376]]
+[[0.376 0.823]]
+[[0.721 0.724]]
+[[ 0.09  -0.345]]
+[[0.081 0.447]]
+[[ 0.345 -0.099]]
+[[ 0.484 -0.003]]
+[[1. 0.]]
+[[1 0]]
+
